@@ -30,6 +30,7 @@ app.use(morgan('dev'));
 
 
 app.get('/' , (req,res)=>{
+  console.log(process.env.CLIENT_URL);
   res.json({ok:true})
 })
 
