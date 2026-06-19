@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: theme('fontFamily.sans');
+  }
+  h1, h2, h3, h4 {
+    font-family: theme('fontFamily.display');
+  }
+  :focus-visible {
+    outline: 2px solid theme('colors.pine.DEFAULT');
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* "Card catalog" tab strip used for picking a topic -- a row of index tabs
+     sitting on a rail, the way a physical drawer of revision cards looks. */
+  .tab-rail {
+    @apply flex flex-wrap gap-1 border-b-2 border-line;
+  }
+  .tab-item {
+    @apply px-4 py-2 -mb-[2px] rounded-t-lg text-sm font-medium text-slate
+           border-2 border-transparent border-b-0 transition-colors;
+  }
+  .tab-item:hover {
+    @apply text-pine-dark bg-pine-light/60;
+  }
+  .tab-item.is-active {
+    @apply bg-surface text-pine-dark border-line border-b-2 border-b-surface;
+  }
+
+  /* Ruled question card -- a left margin rule like notebook paper, with a
+     mono question-number badge and an amber "marks" tag (the highlighter). */
+  .pyq-card {
+    @apply relative bg-surface border border-line rounded-md pl-6 pr-5 py-4
+           shadow-[0_1px_2px_rgba(22,32,28,0.04)];
+  }
+  .pyq-card::before {
+    content: '';
+    @apply absolute left-3 top-3 bottom-3 w-px bg-amber/70;
+  }
+  .marks-tag {
+    @apply inline-flex items-center gap-1 rounded-full bg-amber-light text-amber-dark
+           text-xs font-mono font-medium px-2 py-0.5;
+  }
+  .year-tag {
+    @apply inline-flex items-center gap-1 rounded-full bg-pine-light text-pine-dark
+           text-xs font-mono font-medium px-2 py-0.5;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-pine text-white
+           text-sm font-medium px-4 py-2 hover:bg-pine-dark transition-colors disabled:opacity-50
+           disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-surface text-ink
+           border border-line text-sm font-medium px-4 py-2 hover:bg-pine-light/50 transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-amber {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-amber text-ink
+           text-sm font-semibold px-4 py-2 hover:bg-amber-dark hover:text-white transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .field-label {
+    @apply block text-sm font-medium text-slate mb-1;
+  }
+  .field-input {
+    @apply w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink
+           placeholder:text-slate/70 focus:border-pine focus:ring-1 focus:ring-pine outline-none;
+  }
+  .card {
+    @apply bg-surface border border-line rounded-lg p-5;
+  }
+}

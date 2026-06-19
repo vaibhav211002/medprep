@@ -1,0 +1,6 @@
+node_modules/
+.env
+uploads/pyqs/*
+!uploads/pyqs/.gitkeep
+uploads/submissions/*
+!uploads/submissions/.gitkeep
