@@ -20,9 +20,9 @@ export default function Navbar({ variant = 'student' }) {
               <Link to="/submit" className="text-slate hover:text-ink transition-colors">
                 Submit a paper
               </Link>
-              <Link to="/admin/login" className="text-slate hover:text-ink transition-colors">
+              {/* <Link to="/admin/login" className="text-slate hover:text-ink transition-colors">
                 Admin login
-              </Link>
+              </Link> */}
             </>
           ) : (
             <>
