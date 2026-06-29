@@ -1,34 +1,48 @@
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
 
-/**
- * Extract raw text from a PDF file on disk.
- * NOTE: this only works for text-based PDFs (typed question papers exported
- * to PDF, or PDFs with a text layer). Scanned/photographed papers will
- * return little or no usable text -- that would need an OCR step (e.g.
- * tesseract.js) which isn't wired up here yet.
- */
 async function extractText(filePath) {
   const buffer = fs.readFileSync(filePath);
   const data = await pdfParse(buffer);
   return data.text || '';
 }
 
-// Matches a line that starts a new question, e.g:
-//   "1. Describe the..."   "Q1) Explain.."   "Question 12: Define.."   "Q.5 What is.."
+// Matches numbered question starts:
+// "1. "  "Q1) "  "Question 12: "  "Q.5 "  "1) "
 const QUESTION_START = /^\s*(?:Q(?:uestion|ue)?\.?\s*)?(\d{1,3})\s*[.):]\s+(?=\S)/gm;
 
-// Pulls a trailing marks hint out of a question, e.g. "[5 Marks]" "(10 marks)" "[5]"
+// Trailing marks hint: "[5 Marks]" "(10 marks)" "[5]"
 const MARKS_PATTERN = /[\[(]\s*(\d{1,3})\s*(?:marks?|m)?\s*[\])]\s*$/i;
 
-// Matches an option line, e.g: "a) Rota"  "(b) OPV"  "C. Pentavalent"  "d: dT"
-const OPTION_LINE = /^\(?([a-dA-D])\)?[.):]\s*(.+)$/;
+/**
+ * Matches an MCQ option line. Handles all common medical exam PDF formats:
+ *   a) text       (a) text      a. text      a: text      a- text
+ *   A) text       (A) text      A. text      A: text      A- text
+ *   (a) text      [a] text
+ * Also handles options inline like "a) Rota  b) OPV  c) Penta  d) dT"
+ */
+const OPTION_LINE_RE = /^\s*[\[(]?\s*([a-dA-D])\s*[\])]?[\s]*[.):\-]\s*(.+)/;
 
 /**
- * Split a question block into its stem (the actual question text) and, if
- * present, a list of MCQ options. Only treated as MCQ if at least 2 distinct
- * option letters are found -- otherwise the whole block is kept as-is
- * (covers short-answer / essay-style PYQs, which won't have options).
+ * Some PDFs put all options on a single line, e.g:
+ * "a) Rota   b) OPV   c) Pentavalent   d) dT"
+ * This regex finds all option key+text pairs on one line.
+ */
+const INLINE_OPTIONS_RE = /[\[(]?\s*([a-dA-D])\s*[\])]?\s*[.):\-]\s*([^a-dA-D)(\][\n]+?)(?=\s*[\[(]?\s*[a-dA-D]\s*[\])]?\s*[.):\-]|$)/gi;
+
+/**
+ * Try to extract inline options from a single line like:
+ * "a) Rota  b) OPV  c) Pentavalent  d) dT"
+ */
+function tryInlineOptions(line) {
+  const matches = [...line.matchAll(INLINE_OPTIONS_RE)];
+  if (matches.length < 2) return null;
+  return matches.map((m) => ({ key: m[1].toLowerCase(), text: m[2].trim() }));
+}
+
+/**
+ * Split a question block into stem + MCQ options.
+ * Handles: one-option-per-line, all-options-on-one-line, mixed.
  */
 function extractOptions(blockText) {
   const lines = blockText.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -37,41 +51,61 @@ function extractOptions(blockText) {
   let inOptions = false;
 
   for (const line of lines) {
-    const match = line.match(OPTION_LINE);
-    if (match) {
+    // Check if this entire line is multiple options jammed together
+    const inlineOpts = tryInlineOptions(line);
+    if (inlineOpts && inlineOpts.length >= 2) {
       inOptions = true;
-      options.push({ key: match[1].toLowerCase(), text: match[2].trim() });
-    } else if (!inOptions) {
+      for (const o of inlineOpts) {
+        if (!options.find((ex) => ex.key === o.key)) {
+          options.push(o);
+        }
+      }
+      continue;
+    }
+
+    // Check for single option on its own line
+    const m = line.match(OPTION_LINE_RE);
+    if (m) {
+      const key = m[1].toLowerCase();
+      const text = m[2].trim();
+      // Only treat as option if it starts with a/b/c/d in order or close
+      if (!options.find((ex) => ex.key === key)) {
+        inOptions = true;
+        options.push({ key, text });
+      }
+      continue;
+    }
+
+    if (!inOptions) {
       stemLines.push(line);
     } else if (options.length > 0) {
-      // Wrapped continuation of the previous option's text.
+      // Continuation of previous option's text (wrapped line)
       options[options.length - 1].text += ' ' + line;
     }
   }
 
+  // Must have at least 2 unique option keys to count as MCQ
   const distinctKeys = new Set(options.map((o) => o.key));
-  const isMCQ = options.length >= 2 && distinctKeys.size === options.length;
-
-  if (!isMCQ) {
+  if (options.length < 2 || distinctKeys.size < 2) {
     return { questionText: blockText.trim(), options: [] };
   }
-  return { questionText: stemLines.join(' ').trim(), options };
+
+  // Sort options alphabetically (a, b, c, d)
+  options.sort((x, y) => x.key.localeCompare(y.key));
+
+  const questionText = stemLines.join(' ').trim() || blockText.trim();
+  return { questionText, options };
 }
 
-/**
- * Heuristically split raw PDF text into individual question strings.
- * This is pattern-based (numbered questions), not a perfect parser --
- * odd PDFs (multi-column layouts, unusual numbering, scanned images)
- * may split incorrectly. That's exactly why extracted questions land in
- * "pending review" rather than going straight to students.
- */
 function splitIntoQuestions(rawText) {
-  const text = rawText.replace(/\r/g, '').replace(/\u00a0/g, ' ');
+  // Normalise whitespace & special chars from PDF extraction
+  const text = rawText
+    .replace(/\r/g, '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\t/g, ' ');
 
   const matches = [...text.matchAll(QUESTION_START)];
-  if (matches.length === 0) {
-    return [];
-  }
+  if (matches.length === 0) return [];
 
   const chunks = [];
   for (let i = 0; i < matches.length; i++) {
@@ -84,7 +118,7 @@ function splitIntoQuestions(rawText) {
   return chunks
     .map((chunk) => {
       const cleaned = chunk
-        .replace(/\n{2,}/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
         .replace(/[ \t]{2,}/g, ' ')
         .trim();
 
@@ -95,7 +129,22 @@ function splitIntoQuestions(rawText) {
       const { questionText, options } = extractOptions(cleaned);
       return { questionText, options, marks };
     })
-    .filter((q) => q.questionText.length >= 8); // drop near-empty/junk fragments
+    .filter((q) => q.questionText.length >= 8);
 }
 
-module.exports = { extractText, splitIntoQuestions, extractOptions };
+/**
+ * Debug helper: call this from a test route to see what was parsed
+ * from a PDF without saving anything to the database.
+ */
+function debugParse(rawText) {
+  const questions = splitIntoQuestions(rawText);
+  return questions.map((q, i) => ({
+    index: i + 1,
+    questionText: q.questionText,
+    optionsFound: q.options.length,
+    options: q.options,
+    marks: q.marks,
+  }));
+}
+
+module.exports = { extractText, splitIntoQuestions, extractOptions, debugParse };

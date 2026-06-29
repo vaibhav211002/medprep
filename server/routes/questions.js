@@ -29,13 +29,16 @@ router.get('/admin', requireAdmin, async (req, res) => {
 });
 
 router.put('/:id', requireAdmin, async (req, res) => {
-  const { questionText, topic, status, marks, year } = req.body;
+  const { questionText, topic, status, marks, year, options, correctOptionKey, aiAnswer } = req.body;
   const update = {};
   if (questionText !== undefined) update.questionText = questionText;
   if (topic !== undefined) update.topic = topic || null;
   if (status !== undefined) update.status = status;
   if (marks !== undefined) update.marks = marks;
   if (year !== undefined) update.year = year;
+  if (options !== undefined) update.options = options;
+  if (correctOptionKey !== undefined) update.correctOptionKey = correctOptionKey;
+  if (aiAnswer !== undefined) update.aiAnswer = aiAnswer;
 
   const question = await Question.findByIdAndUpdate(req.params.id, update, { new: true }).populate(
     'topic',
