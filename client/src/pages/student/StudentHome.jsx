@@ -2,27 +2,221 @@ import React, { useEffect, useRef, useState } from 'react';
 import api from '../../api/client.js';
 import Navbar from '../../components/Navbar.jsx';
 import Loader from '../../components/Loader.jsx';
- 
+
+// Strip markdown symbols so AI answers render as plain readable text
+function cleanMarkdown(text) {
+  return text
+    .replace(/#{1,6}\s*/g, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function AnswerText({ text }) {
+  const clean = cleanMarkdown(text);
+  const paragraphs = clean.split('\n\n');
+  return (
+    <div className="space-y-2">
+      {paragraphs.map((para, i) => {
+        const lines = para.split('\n');
+        if (lines.every((l) => l.startsWith('• '))) {
+          return (
+            <ul key={i} className="space-y-1">
+              {lines.map((l, j) => (
+                <li key={j} className="flex gap-2 text-sm leading-relaxed">
+                  <span className="text-[#9C5E1F] mt-0.5">•</span>
+                  <span>{l.replace(/^•\s*/, '')}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        return <p key={i} className="text-sm leading-relaxed text-[#16322B]">{para}</p>;
+      })}
+    </div>
+  );
+}
+
+// Single question card — handles MCQ and open-answer, your CSS untouched
+function QuestionCard({ q, index, onReveal, cardRef }) {
+  const isMCQ = q.options && q.options.length >= 2;
+  const [chosen, setChosen] = useState(null);
+  const [answer, setAnswer] = useState(null); // null | {loading} | {correctKey, explanation, error}
+
+  async function fetchAnswer() {
+    setAnswer({ loading: true });
+    onReveal(q._id);
+    try {
+      const res = await api.post(`/ask/${q._id}`);
+      setAnswer({
+        correctKey: res.data.correctKey || null,
+        explanation: res.data.answer || '',
+        error: null,
+      });
+    } catch (err) {
+      setAnswer({ error: err.response?.data?.message || 'Could not fetch an answer.' });
+    }
+  }
+
+  async function handleOptionClick(key) {
+    if (chosen) return;
+    setChosen(key);
+    await fetchAnswer();
+  }
+
+  const isCorrect = answer?.correctKey && chosen === answer.correctKey;
+  const isWrong   = answer?.correctKey && chosen && chosen !== answer.correctKey;
+
+  return (
+    <div
+      ref={cardRef}
+      className="fade-in-up rounded-xl border border-[#E5E1D6] bg-white px-5 py-5 shadow-sm hover:shadow-md transition-shadow scroll-mt-24"
+      style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
+    >
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <span
+          className="text-xs rounded px-1.5 py-0.5 bg-[#E7F1EC] text-[#1F4D40]"
+          style={{ fontFamily: "'IBM Plex Mono', monospace" }}
+        >
+          Q{index + 1}
+        </span>
+        <div className="flex gap-2 text-xs" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+          {q.year && (
+            <span className="rounded-full px-2 py-0.5 bg-[#E7F1EC] text-[#1F4D40]">{q.year}</span>
+          )}
+          {q.marks != null && (
+            <span className="rounded-full px-2 py-0.5 bg-[#FCEFDD] text-[#9C5E1F]">{q.marks} marks</span>
+          )}
+        </div>
+      </div>
+
+      {/* Question stem */}
+      <p className="text-sm sm:text-base leading-relaxed whitespace-pre-line text-[#16322B] mb-4">
+        {q.questionText}
+      </p>
+
+      {/* MCQ options */}
+      {isMCQ && (
+        <div className="space-y-2 mb-3">
+          {q.options.map((opt) => {
+            const isThis         = chosen === opt.key;
+            const revealCorrect  = answer?.correctKey === opt.key && chosen;
+
+            let cls =
+              'w-full text-left px-4 py-2.5 rounded-lg border text-sm transition-all ';
+
+            if (!chosen) {
+              cls += 'border-[#D2E5DD] bg-white hover:border-[#2A6F5C] hover:bg-[#E7F1EC]/40 cursor-pointer';
+            } else if (revealCorrect) {
+              cls += 'border-[#2A6F5C] bg-[#E7F1EC] text-[#1F4D40] font-medium cursor-default';
+            } else if (isThis && isWrong) {
+              cls += 'border-red-400 bg-red-50 text-red-700 cursor-default';
+            } else {
+              cls += 'border-[#E5E1D6] bg-white text-[#5C6B65] cursor-default opacity-60';
+            }
+
+            return (
+              <button
+                key={opt.key}
+                onClick={() => handleOptionClick(opt.key)}
+                disabled={!!chosen}
+                className={cls}
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace" }} className="mr-2 text-xs uppercase">
+                  {opt.key})
+                </span>
+                {opt.text}
+                {revealCorrect && (
+                  <span className="ml-2 text-[#1F4D40] text-xs font-semibold">✓ Correct</span>
+                )}
+                {isThis && isWrong && (
+                  <span className="ml-2 text-red-600 text-xs font-semibold">✗ Wrong</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Open-answer button — only for non-MCQ */}
+      {!isMCQ && !answer && (
+        <button
+          onClick={fetchAnswer}
+          className="mt-4 inline-flex items-center rounded-lg bg-[#C2792A] px-4 py-2 text-sm font-medium text-white hover:bg-[#A8651E] transition-colors focus:outline-none focus:ring-2 focus:ring-[#C2792A]/40"
+        >
+          Tell me the answer
+        </button>
+      )}
+
+      {/* Loading */}
+      {answer?.loading && (
+        <div className="mt-4"><Loader label="Checking answer..." /></div>
+      )}
+
+      {/* Error */}
+      {answer?.error && (
+        <p className="text-sm text-red-600 mt-4">{answer.error}</p>
+      )}
+
+      {/* Result panel */}
+      {answer && !answer.loading && !answer.error && (
+        <div className="mt-4 rounded-xl overflow-hidden border border-[#E5E1D6]">
+          {/* Correct answer banner */}
+          {answer.correctKey && (
+            <div className="bg-[#1F4D40] text-white px-4 py-3 flex items-center gap-3">
+              <span className="text-lg">{isCorrect ? '🎉' : '📖'}</span>
+              <div>
+                <p className="text-sm font-semibold">
+                  {isCorrect
+                    ? 'Correct! Well done.'
+                    : `Correct answer: ${answer.correctKey.toUpperCase()}) ${
+                        q.options?.find((o) => o.key === answer.correctKey)?.text || ''
+                      }`}
+                </p>
+                {!isCorrect && (
+                  <p className="text-xs text-white/70 mt-0.5">Read the explanation below.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Explanation */}
+          <div className="border-l-2 border-[#D08A3C] bg-[#FCEFDD]/50 px-4 py-3">
+            <p
+              className="text-xs uppercase tracking-wide text-[#9C5E1F] mb-2"
+              style={{ fontFamily: "'IBM Plex Mono', monospace" }}
+            >
+              Explanation
+            </p>
+            <AnswerText text={answer.explanation} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function StudentHome() {
-  // ----------------------------------------------------------------------
-  // Original logic — unchanged
-  // ----------------------------------------------------------------------
-  const [subjects, setSubjects] = useState([]);
-  const [subjectId, setSubjectId] = useState('');
-  const [topics, setTopics] = useState([]);
-  const [topicId, setTopicId] = useState('');
-  const [questions, setQuestions] = useState([]);
+  const [subjects, setSubjects]           = useState([]);
+  const [subjectId, setSubjectId]         = useState('');
+  const [topics, setTopics]               = useState([]);
+  const [topicId, setTopicId]             = useState('');
+  const [questions, setQuestions]         = useState([]);
   const [loadingTopics, setLoadingTopics] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
-  const [answers, setAnswers] = useState({}); // { [questionId]: { loading, text, error } }
- 
+
   useEffect(() => {
     api.get('/subjects').then((res) => {
       setSubjects(res.data.subjects);
       if (res.data.subjects[0]) setSubjectId(res.data.subjects[0]._id);
     });
   }, []);
- 
+
   useEffect(() => {
     if (!subjectId) return;
     setLoadingTopics(true);
@@ -34,7 +228,7 @@ export default function StudentHome() {
       setLoadingTopics(false);
     });
   }, [subjectId]);
- 
+
   useEffect(() => {
     if (!subjectId || !topicId) return;
     setLoadingQuestions(true);
@@ -43,25 +237,8 @@ export default function StudentHome() {
       setLoadingQuestions(false);
     });
   }, [subjectId, topicId]);
- 
-  async function revealAnswer(questionId) {
-    setAnswers((a) => ({ ...a, [questionId]: { loading: true } }));
-    try {
-      const res = await api.post(`/ask/${questionId}`);
-      setAnswers((a) => ({ ...a, [questionId]: { loading: false, text: res.data.answer } }));
-    } catch (err) {
-      setAnswers((a) => ({
-        ...a,
-        [questionId]: { loading: false, error: err.response?.data?.message || 'Could not fetch an answer.' },
-      }));
-    }
-  }
- 
-  // ----------------------------------------------------------------------
-  // Presentation-only additions (no business logic touched above)
-  // ----------------------------------------------------------------------
- 
-  // Load display/body/mono fonts once.
+
+  // Fonts
   useEffect(() => {
     const id = 'medprep-fonts';
     if (document.getElementById(id)) return;
@@ -73,8 +250,8 @@ export default function StudentHome() {
     document.head.appendChild(link);
     document.documentElement.style.scrollBehavior = 'smooth';
   }, []);
- 
-  // Thin scroll-progress indicator.
+
+  // Scroll progress bar
   const [scrollPct, setScrollPct] = useState(0);
   useEffect(() => {
     function onScroll() {
@@ -86,22 +263,21 @@ export default function StudentHome() {
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
- 
-  // Auto-scroll a question's card into view when its answer is requested / arrives.
-  const [activeId, setActiveId] = useState(null);
-  const questionRefs = useRef({});
- 
+
+  // Auto-scroll to card when answer arrives
+  const [activeId, setActiveId]   = useState(null);
+  const questionRefs              = useRef({});
+
   function handleReveal(questionId) {
     setActiveId(questionId);
-    revealAnswer(questionId);
   }
- 
+
   useEffect(() => {
     if (!activeId) return;
     const node = questionRefs.current[activeId];
     if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [activeId, answers[activeId]?.loading, answers[activeId]?.text, answers[activeId]?.error]);
- 
+  }, [activeId]);
+
   return (
     <div className="min-h-screen bg-[#FAF8F3]">
       <style>{`
@@ -114,15 +290,15 @@ export default function StudentHome() {
           .fade-in-up { animation: none; opacity: 1; transform: none; }
         }
       `}</style>
- 
+
       {/* Scroll progress */}
       <div
         className="fixed top-0 left-0 h-[3px] z-50 bg-gradient-to-r from-[#2A6F5C] to-[#D08A3C] transition-[width] duration-150 ease-out"
         style={{ width: `${scrollPct}%` }}
       />
- 
+
       <Navbar variant="student" />
- 
+
       {/* Banner */}
       <header className="relative overflow-hidden bg-[#1F4D40]">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-10 pb-9 sm:pt-14 sm:pb-12">
@@ -145,7 +321,7 @@ export default function StudentHome() {
             Helping medical students prepare with confidence — real past questions, clear answers.
           </p>
         </div>
- 
+
         <svg
           className="absolute bottom-0 left-0 w-full h-7 sm:h-9 text-[#D08A3C]"
           viewBox="0 0 800 40"
@@ -165,7 +341,7 @@ export default function StudentHome() {
           />
         </svg>
       </header>
- 
+
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10" style={{ fontFamily: "'Inter', sans-serif" }}>
         <h2
           className="text-xl font-semibold text-[#16322B] mb-1"
@@ -174,10 +350,10 @@ export default function StudentHome() {
           Browse questions
         </h2>
         <p className="text-sm text-[#5C6B65] mb-7 leading-relaxed">
-          Pick a subject and a topic to browse past questions. Click "Tell me the answer" for an
-          exam-ready, AI-generated explanation of any question.
+          Pick a subject and a topic. For MCQs, tap the option you think is correct — you'll get
+          instant feedback and a clear explanation.
         </p>
- 
+
         {subjects.length === 0 ? (
           <div className="rounded-xl border border-[#E5E1D6] bg-white px-5 py-6 text-sm text-[#5C6B65]">
             No subjects have been added yet — check back soon.
@@ -194,13 +370,11 @@ export default function StudentHome() {
                 onChange={(e) => setSubjectId(e.target.value)}
               >
                 {subjects.map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {s.name}
-                  </option>
+                  <option key={s._id} value={s._id}>{s.name}</option>
                 ))}
               </select>
             </div>
- 
+
             {loadingTopics ? (
               <Loader label="Loading topics..." />
             ) : topics.length === 0 ? (
@@ -227,7 +401,7 @@ export default function StudentHome() {
                     );
                   })}
                 </div>
- 
+
                 {loadingQuestions ? (
                   <Loader label="Loading questions..." />
                 ) : questions.length === 0 ? (
@@ -236,75 +410,15 @@ export default function StudentHome() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {questions.map((q, i) => {
-                      const state = answers[q._id];
-                      return (
-                        <div
-                          key={q._id}
-                          ref={(node) => {
-                            questionRefs.current[q._id] = node;
-                          }}
-                          className="fade-in-up rounded-xl border border-[#E5E1D6] bg-white px-5 py-5 shadow-sm hover:shadow-md transition-shadow scroll-mt-24"
-                          style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
-                        >
-                          <div className="flex items-start justify-between gap-3 mb-3">
-                            <span
-                              className="text-xs rounded px-1.5 py-0.5 bg-[#E7F1EC] text-[#1F4D40]"
-                              style={{ fontFamily: "'IBM Plex Mono', monospace" }}
-                            >
-                              Q{i + 1}
-                            </span>
-                            <div className="flex gap-2 text-xs" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-                              {q.year && (
-                                <span className="rounded-full px-2 py-0.5 bg-[#E7F1EC] text-[#1F4D40]">
-                                  {q.year}
-                                </span>
-                              )}
-                              {q.marks != null && (
-                                <span className="rounded-full px-2 py-0.5 bg-[#FCEFDD] text-[#9C5E1F]">
-                                  {q.marks} marks
-                                </span>
-                              )}
-                            </div>
-                          </div>
- 
-                          <p className="text-sm sm:text-base leading-relaxed whitespace-pre-line text-[#16322B]">
-                            {q.questionText}
-                          </p>
- 
-                          {!state && (
-                            <button
-                              onClick={() => handleReveal(q._id)}
-                              className="mt-4 inline-flex items-center rounded-lg bg-[#C2792A] px-4 py-2 text-sm font-medium text-white hover:bg-[#A8651E] transition-colors focus:outline-none focus:ring-2 focus:ring-[#C2792A]/40"
-                            >
-                              Tell me the answer
-                            </button>
-                          )}
- 
-                          {state?.loading && (
-                            <div className="mt-4">
-                              <Loader label="Asking Grok..." />
-                            </div>
-                          )}
- 
-                          {state?.error && <p className="text-sm text-red-600 mt-4">{state.error}</p>}
- 
-                          {state?.text && (
-                            <div className="mt-4 border-l-2 border-[#D08A3C] bg-[#FCEFDD]/50 rounded-r-md px-4 py-3">
-                              <p
-                                className="text-xs uppercase tracking-wide text-[#9C5E1F] mb-1"
-                                style={{ fontFamily: "'IBM Plex Mono', monospace" }}
-                              >
-                                Answer
-                              </p>
-                              <p className="text-sm leading-relaxed whitespace-pre-line text-[#16322B]">
-                                {state.text}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {questions.map((q, i) => (
+                      <QuestionCard
+                        key={q._id}
+                        q={q}
+                        index={i}
+                        onReveal={handleReveal}
+                        cardRef={(node) => { questionRefs.current[q._id] = node; }}
+                      />
+                    ))}
                   </div>
                 )}
               </>
@@ -312,7 +426,7 @@ export default function StudentHome() {
           </>
         )}
       </main>
- 
+
       {/* Footer */}
       <footer className="border-t border-[#E5E1D6] mt-16 py-8">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-center gap-2 text-sm text-[#5C6B65]">

@@ -21,6 +21,43 @@ const QUESTION_START = /^\s*(?:Q(?:uestion|ue)?\.?\s*)?(\d{1,3})\s*[.):]\s+(?=\S
 // Pulls a trailing marks hint out of a question, e.g. "[5 Marks]" "(10 marks)" "[5]"
 const MARKS_PATTERN = /[\[(]\s*(\d{1,3})\s*(?:marks?|m)?\s*[\])]\s*$/i;
 
+// Matches an option line, e.g: "a) Rota"  "(b) OPV"  "C. Pentavalent"  "d: dT"
+const OPTION_LINE = /^\(?([a-dA-D])\)?[.):]\s*(.+)$/;
+
+/**
+ * Split a question block into its stem (the actual question text) and, if
+ * present, a list of MCQ options. Only treated as MCQ if at least 2 distinct
+ * option letters are found -- otherwise the whole block is kept as-is
+ * (covers short-answer / essay-style PYQs, which won't have options).
+ */
+function extractOptions(blockText) {
+  const lines = blockText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const stemLines = [];
+  const options = [];
+  let inOptions = false;
+
+  for (const line of lines) {
+    const match = line.match(OPTION_LINE);
+    if (match) {
+      inOptions = true;
+      options.push({ key: match[1].toLowerCase(), text: match[2].trim() });
+    } else if (!inOptions) {
+      stemLines.push(line);
+    } else if (options.length > 0) {
+      // Wrapped continuation of the previous option's text.
+      options[options.length - 1].text += ' ' + line;
+    }
+  }
+
+  const distinctKeys = new Set(options.map((o) => o.key));
+  const isMCQ = options.length >= 2 && distinctKeys.size === options.length;
+
+  if (!isMCQ) {
+    return { questionText: blockText.trim(), options: [] };
+  }
+  return { questionText: stemLines.join(' ').trim(), options };
+}
+
 /**
  * Heuristically split raw PDF text into individual question strings.
  * This is pattern-based (numbered questions), not a perfect parser --
@@ -55,9 +92,10 @@ function splitIntoQuestions(rawText) {
       const marksMatch = cleaned.match(MARKS_PATTERN);
       if (marksMatch) marks = Number(marksMatch[1]);
 
-      return { questionText: cleaned, marks };
+      const { questionText, options } = extractOptions(cleaned);
+      return { questionText, options, marks };
     })
     .filter((q) => q.questionText.length >= 8); // drop near-empty/junk fragments
 }
 
-module.exports = { extractText, splitIntoQuestions };
+module.exports = { extractText, splitIntoQuestions, extractOptions };

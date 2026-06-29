@@ -66,6 +66,7 @@ router.post('/', requireAdmin, uploadPyq.single('pdf'), async (req, res) => {
         subject: subject._id,
         topic: topicDoc ? topicDoc._id : null,
         questionText: extracted[i].questionText,
+        options: extracted[i].options || [],
         suggestedTopicName: topicName,
         marks: extracted[i].marks,
         year: year || '',

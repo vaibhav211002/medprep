@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ message: 'subject and topic query params are required.' });
   }
   const questions = await Question.find({ subject, topic, status: 'approved' })
-    .select('-aiAnswer') // fetched lazily via /api/ask so we don't ship every answer upfront
+    .select('-aiAnswer -correctOptionKey') // fetched lazily via /api/ask
     .sort({ year: -1, createdAt: -1 });
   res.json({ questions });
 });

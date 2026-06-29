@@ -91,7 +91,7 @@ async function answerQuestion(subjectName, topicName, questionText) {
       role: 'user',
       content:
         `Subject: ${subjectName}\nTopic: ${topicName || 'General'}\n\n` +
-        `Question: ${questionText}\n\nProvide a clear, exam-ready answer.`,
+        `Question: ${questionText}\n\nProvide a clear, exam-ready answer.Remove the * and # symbols so that it looks like human written.`,
     },
   ];
 
