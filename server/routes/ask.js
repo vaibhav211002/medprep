@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const Question = require('../models/Question');
-const { answerQuestion, enrichQuestionsForReview } = require('../utils/grokClient');
+const { answerQuestion, enrichQuestionsForReview, formatProviderError } = require('../utils/grokClient');
 
 const router = express.Router();
 
@@ -126,8 +126,7 @@ router.post('/:questionId', async (req, res) => {
       return res.status(503).json({ message: err.message, retryAfterSeconds: 3 });
     }
     res.status(502).json({
-      message: 'Could not get an answer from the AI right now. Please try again.',
-      error: err.message,
+      message: formatProviderError(err),
     });
   }
 });

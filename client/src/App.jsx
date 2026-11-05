@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import StudentHome from './pages/student/StudentHome.jsx';
 import SubmitPaper from './pages/student/SubmitPaper.jsx';
@@ -12,6 +12,18 @@ import ReviewQuestions from './pages/admin/ReviewQuestions.jsx';
 import ManageSubjects from './pages/admin/ManageSubjects.jsx';
 import Submissions from './pages/admin/Submissions.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
+
+function RouteFallback() {
+  const location = useLocation();
+  const normalizedPath = location.pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
+  const destination = normalizedPath !== location.pathname
+    ? normalizedPath
+    : normalizedPath.startsWith('/admin')
+      ? '/admin/login'
+      : '/';
+
+  return <Navigate to={destination + location.search + location.hash} replace />;
+}
 
 export default function App() {
   return (
@@ -36,6 +48,7 @@ export default function App() {
         <Route path="subjects" element={<ManageSubjects />} />
         <Route path="submissions" element={<Submissions />} />
       </Route>
+      <Route path="*" element={<RouteFallback />} />
     </Routes>
   );
 }

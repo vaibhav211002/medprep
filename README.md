@@ -34,7 +34,7 @@ Stack: **M**ongoDB, **E**xpress, **R**eact (Vite), **N**ode.
 - Node.js 18+ and npm
 - A MongoDB database - either install locally or use a free [MongoDB Atlas](https://www.mongodb.com/atlas)
   cluster
-- A Grok (xAI) API key from <https://console.x.ai> - required for topic suggestions and answer generation
+- An AI API key from Groq or xAI - required for topic suggestions and answer generation
   (the rest of the app works without it, those two features just show a friendly error until you add it)
 
 ## 3. Setup
@@ -51,7 +51,8 @@ Open `.env` and fill in:
 - `MONGO_URI` - your MongoDB connection string
 - `JWT_SECRET` - any long random string
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` - your admin login (used once by the seed script below)
-- `XAI_API_KEY` - your Grok API key (get one at console.x.ai)
+- `GROQ_API_KEY` for Groq, or `XAI_API_KEY` for xAI
+- Optional `GROQ_BASE_URL` / `XAI_BASE_URL` and `GROQ_MODEL` / `GROK_MODEL` overrides
 - SMTP settings - optional, see section 5
 
 Create your admin account (run this once, and again any time you want to reset the password):
@@ -117,8 +118,9 @@ email. To also get an email per submission:
   you later want to track individual students, add a `Student` model + auth similar to the admin's.
   - **Single admin role**: the seed script creates one admin login. The `Admin` model/routes can be
   extended for multiple admin accounts if you need them.
-- **Grok model name**: set via `GROK_MODEL` in `server/.env` (defaults to `grok-4.3`). xAI updates model
-  names periodically - check <https://docs.x.ai/docs/models> if you start getting model-not-found errors.
+- **AI provider configuration**: use `GROQ_API_KEY` for Groq (defaults to `https://api.groq.com/openai/v1`
+  and `openai/gpt-oss-120b`) or `XAI_API_KEY` for xAI (defaults to `https://api.x.ai/v1` and `grok-4.3`).
+  Production environment variables must be configured on the hosting provider and redeployed.
 
 ## 7. Project structure
 

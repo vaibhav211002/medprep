@@ -1,16 +1,19 @@
 const axios = require('axios');
 
 function client() {
-  const apiKey = process.env.XAI_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
+  const apiKey = groqKey || process.env.XAI_API_KEY;
   if (!apiKey || apiKey === 'your_xai_api_key_here') {
     const err = new Error(
-      'XAI_API_KEY is not set. Add your Grok API key to server/.env to enable AI features.'
+      'Set GROQ_API_KEY for Groq or XAI_API_KEY for xAI in the backend environment.'
     );
     err.code = 'NO_API_KEY';
     throw err;
   }
+  const baseURL = process.env.GROQ_BASE_URL || process.env.XAI_BASE_URL ||
+    (groqKey ? 'https://api.groq.com/openai/v1' : 'https://api.x.ai/v1');
   return axios.create({
-    baseURL: process.env.XAI_BASE_URL || 'https://api.x.ai/v1',
+    baseURL: baseURL.replace(/\/+$/, '').replace(/\/chat\/completions$/i, ''),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -40,8 +43,11 @@ function cleanOptionText(value) {
 
 async function chatCompletion(messages, { jsonMode = false } = {}) {
   const http = client();
+  const configuredBase = process.env.GROQ_BASE_URL || process.env.XAI_BASE_URL || '';
+  const isGroq = Boolean(process.env.GROQ_API_KEY) || configuredBase.includes('groq.com');
   const body = {
-    model: process.env.GROK_MODEL || 'openai/gpt-oss-120b',
+    model: process.env.GROQ_MODEL || process.env.GROK_MODEL ||
+      (isGroq ? 'openai/gpt-oss-120b' : 'grok-4.3'),
     messages,
     temperature: 0.2,
   };
