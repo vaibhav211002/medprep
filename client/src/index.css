@@ -3,11 +3,18 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     font-family: theme('fontFamily.sans');
+    @apply bg-paper text-ink antialiased;
   }
   h1, h2, h3, h4 {
     font-family: theme('fontFamily.display');
+  }
+  button, input, select, textarea {
+    font: inherit;
   }
   :focus-visible {
     outline: 2px solid theme('colors.pine.DEFAULT');
@@ -16,64 +23,75 @@
 }
 
 @layer components {
-  /* "Card catalog" tab strip used for picking a topic -- a row of index tabs
-     sitting on a rail, the way a physical drawer of revision cards looks. */
-  .tab-rail {
-    @apply flex flex-wrap gap-1 border-b-2 border-line;
+  .page-shell {
+    @apply min-h-screen bg-paper;
   }
-  .tab-item {
-    @apply px-4 py-2 -mb-[2px] rounded-t-lg text-sm font-medium text-slate
-           border-2 border-transparent border-b-0 transition-colors;
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
   }
-  .tab-item:hover {
-    @apply text-pine-dark bg-pine-light/60;
+  .page-header {
+    @apply mb-7;
   }
-  .tab-item.is-active {
-    @apply bg-surface text-pine-dark border-line border-b-2 border-b-surface;
+  .page-title {
+    @apply text-3xl sm:text-4xl font-semibold tracking-tight text-ink;
   }
-
-  /* Ruled question card -- a left margin rule like notebook paper, with a
-     mono question-number badge and an amber "marks" tag (the highlighter). */
   .pyq-card {
-    @apply relative bg-surface border border-line rounded-md pl-6 pr-5 py-4
-           shadow-[0_1px_2px_rgba(22,32,28,0.04)];
-  }
-  .pyq-card::before {
-    content: '';
-    @apply absolute left-3 top-3 bottom-3 w-px bg-amber/70;
+    @apply bg-white border border-line rounded-xl p-5 sm:p-6 shadow-card;
   }
   .marks-tag {
-    @apply inline-flex items-center gap-1 rounded-full bg-amber-light text-amber-dark
-           text-xs font-mono font-medium px-2 py-0.5;
+    @apply inline-flex items-center rounded-full bg-amber-light text-amber-dark
+           text-xs font-medium px-2.5 py-1;
   }
   .year-tag {
-    @apply inline-flex items-center gap-1 rounded-full bg-pine-light text-pine-dark
-           text-xs font-mono font-medium px-2 py-0.5;
+    @apply inline-flex items-center rounded-full bg-pine-light text-pine-dark
+           text-xs font-medium px-2.5 py-1;
   }
-
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-md bg-pine text-white
-           text-sm font-medium px-4 py-2 hover:bg-pine-dark transition-colors disabled:opacity-50
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-pine text-white
+           text-sm font-semibold px-4 py-2.5 hover:bg-pine-dark transition-colors disabled:opacity-50
            disabled:cursor-not-allowed;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-md bg-surface text-ink
-           border border-line text-sm font-medium px-4 py-2 hover:bg-pine-light/50 transition-colors
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-white text-ink
+           border border-line text-sm font-medium px-4 py-2.5 hover:bg-pine-light transition-colors
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-amber {
-    @apply inline-flex items-center justify-center gap-2 rounded-md bg-amber text-ink
-           text-sm font-semibold px-4 py-2 hover:bg-amber-dark hover:text-white transition-colors
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-pine text-white
+           text-sm font-semibold px-4 py-2.5 hover:bg-pine-dark transition-colors
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .field-label {
-    @apply block text-sm font-medium text-slate mb-1;
+    @apply block text-sm font-medium text-ink mb-1.5;
   }
   .field-input {
-    @apply w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink
-           placeholder:text-slate/70 focus:border-pine focus:ring-1 focus:ring-pine outline-none;
+    @apply w-full rounded-lg border border-line bg-white px-3.5 py-2.5 text-sm text-ink
+           placeholder:text-slate/70 focus:border-pine focus:ring-2 focus:ring-pine/15 outline-none transition;
   }
   .card {
-    @apply bg-surface border border-line rounded-lg p-5;
+    @apply bg-white border border-line rounded-2xl p-5 sm:p-6 shadow-card;
+  }
+  .tab-rail {
+    @apply flex gap-1 overflow-x-auto border-b border-line;
+  }
+  .tab-item {
+    @apply whitespace-nowrap px-4 py-3 text-sm font-medium text-slate border-b-2 border-transparent transition-colors;
+  }
+  .tab-item:hover, .tab-item.is-active {
+    @apply text-pine border-pine;
+  }
+  .nav-link {
+    @apply inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium text-slate transition-colors hover:bg-pine-light hover:text-pine-dark;
+  }
+  .nav-link-active {
+    @apply bg-pine-light text-pine-dark;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

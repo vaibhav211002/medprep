@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../api/client.js';
 import Loader from '../../components/Loader.jsx';
+import FileUpload from '../../components/FileUpload.jsx';
 
 export default function UploadPYQ() {
   const [subjects, setSubjects] = useState([]);
@@ -10,6 +11,7 @@ export default function UploadPYQ() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     api.get('/subjects').then((res) => {
@@ -24,6 +26,7 @@ export default function UploadPYQ() {
     setBusy(true);
     setError('');
     setResult(null);
+    setProgress(0);
 
     const form = new FormData();
     form.append('pdf', file);
@@ -33,6 +36,9 @@ export default function UploadPYQ() {
     try {
       const res = await api.post('/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (event) => {
+          if (event.total) setProgress(Math.round((event.loaded / event.total) * 100));
+        },
       });
       setResult(res.data);
       setFile(null);
@@ -55,14 +61,17 @@ export default function UploadPYQ() {
   }
 
   return (
-    <div className="max-w-xl">
-      <h1 className="text-2xl font-semibold mb-1">Upload PYQs</h1>
-      <p className="text-sm text-slate mb-6">
+      <div className="max-w-3xl">
+      <div className="page-header">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pine mb-2">Question bank</p>
+      <h1 className="page-title">Upload PYQs</h1>
+      <p className="text-sm text-slate mt-2 max-w-2xl">
         Upload a question-paper PDF. The AI will split it into individual questions and suggest a
         topic for each one -- review them afterwards in the Review queue before they go live.
       </p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="card space-y-4">
+      <form onSubmit={handleSubmit} className="card space-y-5">
         <div>
           <label className="field-label">Subject</label>
           <select className="field-input" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
@@ -83,17 +92,9 @@ export default function UploadPYQ() {
         </div>
 
         <div>
-          <label className="field-label">Question paper PDF</label>
-          <input
-            type="file"
-            accept="application/pdf"
-            required
-            className="field-input"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-          />
-          <p className="text-xs text-slate mt-1">
-            Works best with text-based PDFs. Scanned/photographed papers may not extract cleanly.
-          </p>
+          <label className="field-label" htmlFor="pyq-pdf">Question paper PDF</label>
+          <FileUpload id="pyq-pdf" file={file} onFileChange={setFile} />
+          <p className="mt-2 text-xs leading-relaxed text-slate">Text-based PDFs extract best. Scanned or photographed papers may not parse cleanly.</p>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -103,7 +104,13 @@ export default function UploadPYQ() {
         </button>
       </form>
 
-      {busy && <Loader label="Extracting questions and suggesting topics..." />}
+      {busy && (
+        <div className="card mt-4">
+          <div className="flex justify-between text-sm"><span className="font-medium text-ink">Uploading and processing</span><span className="font-mono text-slate">{progress}%</span></div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-pine-light"><div className="h-full rounded-full bg-pine transition-[width]" style={{ width: progress + '%' }} /></div>
+          <p className="mt-2 text-xs text-slate">Extracting questions and preparing them for review.</p>
+        </div>
+      )}
 
       {result && (
         <div className="card mt-6">

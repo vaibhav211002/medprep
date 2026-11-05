@@ -16,6 +16,7 @@ router.get('/', async (req, res) => {
   if (topic !== 'all') filter.topic = topic;
   const questions = await Question.find(filter)
     .select('-aiAnswer -correctOptionKey -aiAnswerLockToken -aiAnswerLockAt') // answer key is revealed only after a student answers
+    .populate('topic', 'name')
     .sort({ year: -1, createdAt: -1 });
   questions.forEach((question) => {
     question.options = question.options.map((option) => ({

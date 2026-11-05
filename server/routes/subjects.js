@@ -27,14 +27,27 @@ router.post('/', requireAdmin, async (req, res) => {
 });
 
 router.put('/:id', requireAdmin, async (req, res) => {
-  const { name, description } = req.body;
-  const subject = await Subject.findByIdAndUpdate(
-    req.params.id,
-    { ...(name && { name: name.trim() }), ...(description !== undefined && { description }) },
-    { new: true }
-  );
-  if (!subject) return res.status(404).json({ message: 'Subject not found.' });
-  res.json({ subject });
+  try {
+    const { name, description } = req.body;
+    const update = {};
+    if (name !== undefined) {
+      if (!name.trim()) return res.status(400).json({ message: 'Subject name is required.' });
+      update.name = name.trim();
+    }
+    if (description !== undefined) update.description = description;
+
+    const subject = await Subject.findByIdAndUpdate(req.params.id, update, {
+      new: true,
+      runValidators: true,
+    });
+    if (!subject) return res.status(404).json({ message: 'Subject not found.' });
+    res.json({ subject });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ message: 'A subject with this name already exists.' });
+    }
+    res.status(500).json({ message: 'Could not update subject.', error: err.message });
+  }
 });
 
 router.delete('/:id', requireAdmin, async (req, res) => {

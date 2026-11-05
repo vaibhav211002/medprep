@@ -14,8 +14,8 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen">
       <Navbar variant="admin" />
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        <nav className="tab-rail mb-6">
+      <main className="page-container py-6 sm:py-9">
+        <nav className="tab-rail mb-8" aria-label="Admin navigation">
           {links.map((l) => (
             <NavLink
               key={l.to}
@@ -28,7 +28,7 @@ export default function AdminLayout() {
           ))}
         </nav>
         <Outlet />
-      </div>
+      </main>
     </div>
   );
 }

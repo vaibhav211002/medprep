@@ -4,26 +4,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        paper: '#EDF1ED',
+        paper: '#F7F6F0',
         surface: '#FFFFFF',
-        ink: '#16201C',
-        slate: '#5B6760',
+        ink: '#25352E',
+        slate: '#718078',
         pine: {
-          DEFAULT: '#1F6F54',
-          dark: '#15503C',
-          light: '#E3EFE9',
+          DEFAULT: '#174C3C',
+          dark: '#103B30',
+          light: '#E5EFE9',
         },
         amber: {
-          DEFAULT: '#F2B705',
-          dark: '#B8870A',
-          light: '#FDF2D0',
+          DEFAULT: '#C18B43',
+          dark: '#8F632D',
+          light: '#F6EEDC',
         },
-        line: '#D8DED9',
+        line: '#DCE5DE',
+      },
+      boxShadow: {
+        card: '0 8px 24px rgba(16, 59, 48, 0.06)',
       },
       fontFamily: {
-        display: ['"Source Serif 4"', 'serif'],
-        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'monospace'],
+        display: ['Lora', 'Georgia', 'serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
       },
     },
   },

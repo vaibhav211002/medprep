@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../api/client.js';
 import Navbar from '../../components/Navbar.jsx';
+import FileUpload from '../../components/FileUpload.jsx';
 
 export default function SubmitPaper() {
   const [subjects, setSubjects] = useState([]);
@@ -52,11 +53,14 @@ export default function SubmitPaper() {
       <Navbar variant="student" />
 
       <main className="max-w-xl mx-auto px-4 sm:px-6 py-8">
-        <h1 className="text-2xl font-semibold mb-1">Submit a question paper</h1>
-        <p className="text-sm text-slate mb-6">
+        <div className="page-header">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pine mb-2">Contribute to the library</p>
+        <h1 className="page-title">Submit a question paper</h1>
+        <p className="text-sm text-slate mt-2">
           Have a PYQ paper that's not in the bank yet? Upload it here along with your email and
           we'll add it once reviewed.
         </p>
+        </div>
 
         {result ? (
           <div className="card">
@@ -66,7 +70,7 @@ export default function SubmitPaper() {
             </button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="card space-y-4">
+          <form onSubmit={handleSubmit} className="card space-y-5">
             <div>
               <label className="field-label">Your name (optional)</label>
               <input className="field-input" value={name} onChange={(e) => setName(e.target.value)} />
@@ -105,14 +109,8 @@ export default function SubmitPaper() {
             </div>
 
             <div>
-              <label className="field-label">Question paper PDF</label>
-              <input
-                type="file"
-                accept="application/pdf"
-                required
-                className="field-input"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-              />
+              <label className="field-label" htmlFor="submission-pdf">Question paper PDF</label>
+              <FileUpload id="submission-pdf" file={file} onFileChange={setFile} />
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}

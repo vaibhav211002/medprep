@@ -1,47 +1,87 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import api from '../../api/client.js';
 import Navbar from '../../components/Navbar.jsx';
 import Loader from '../../components/Loader.jsx';
 
-// Strip markdown symbols so AI answers render as plain readable text
 function cleanMarkdown(text) {
-  return text
-    .replace(/#{1,6}\s*/g, '')
+  return (text || '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\*(.+?)\*/g, '$1')
     .replace(/`(.+?)`/g, '$1')
-    .replace(/^\s*[-*]\s+/gm, '• ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 function AnswerText({ text }) {
-  const clean = cleanMarkdown(text);
-  const paragraphs = clean.split('\n\n');
+  const lines = cleanMarkdown(text).split('\n');
+  const blocks = [];
+  let index = 0;
+  const isBullet = (line) => /^\s*[-*+]\s+/.test(line);
+  const isNumbered = (line) => /^\s*\d+[.)]\s+/.test(line);
+  const isHeading = (line) => /^#{1,4}\s+/.test(line);
+  const isTable = (line) => line.trim().startsWith('|') && line.indexOf('|', 1) >= 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) { index += 1; continue; }
+    if (isHeading(line)) {
+      blocks.push({ type: 'heading', text: line.replace(/^#{1,4}\s+/, '') });
+      index += 1;
+      continue;
+    }
+    if (isBullet(line) || isNumbered(line)) {
+      const ordered = isNumbered(line);
+      const items = [];
+      while (index < lines.length && (ordered ? isNumbered(lines[index]) : isBullet(lines[index]))) {
+        items.push(lines[index].replace(ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/, '').trim());
+        index += 1;
+      }
+      blocks.push({ type: ordered ? 'ordered' : 'list', items });
+      continue;
+    }
+    if (isTable(line)) {
+      const rows = [];
+      while (index < lines.length && isTable(lines[index].trim())) {
+        const cells = lines[index].trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+        if (!cells.every((cell) => /^:?-{3,}:?$/.test(cell))) rows.push(cells);
+        index += 1;
+      }
+      if (rows.length) blocks.push({ type: 'table', rows });
+      continue;
+    }
+    const paragraph = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isHeading(lines[index].trim()) &&
+      !isBullet(lines[index]) && !isNumbered(lines[index]) && !isTable(lines[index].trim())) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push({ type: 'paragraph', text: paragraph.join(' ') });
+  }
+
   return (
-    <div className="space-y-2">
-      {paragraphs.map((para, i) => {
-        const lines = para.split('\n');
-        if (lines.every((l) => l.startsWith('• '))) {
-          return (
-            <ul key={i} className="space-y-1">
-              {lines.map((l, j) => (
-                <li key={j} className="flex gap-2 text-sm leading-relaxed">
-                  <span className="text-[#9C5E1F] mt-0.5">•</span>
-                  <span>{l.replace(/^•\s*/, '')}</span>
-                </li>
-              ))}
-            </ul>
-          );
+    <div className="space-y-3">
+      {blocks.map((block, i) => {
+        if (block.type === 'heading') return <h4 key={i} className="pt-1 text-sm font-semibold text-pine-dark">{block.text}</h4>;
+        if (block.type === 'list' || block.type === 'ordered') {
+          const List = block.type === 'ordered' ? 'ol' : 'ul';
+          return <List key={i} className={'space-y-1 pl-5 text-sm leading-relaxed text-ink ' + (block.type === 'ordered' ? 'list-decimal' : 'list-disc')}>
+            {block.items.map((item, j) => <li key={j}>{item}</li>)}
+          </List>;
         }
-        return <p key={i} className="text-sm leading-relaxed text-[#16322B]">{para}</p>;
+        if (block.type === 'table') return <div key={i} className="overflow-x-auto rounded-lg border border-line">
+          <table className="min-w-full divide-y divide-line text-left text-sm">
+            <thead className="bg-pine-light"><tr>{block.rows[0].map((cell, j) => <th key={j} className="px-3 py-2 font-semibold text-pine-dark">{cell}</th>)}</tr></thead>
+            <tbody className="divide-y divide-line bg-white">{block.rows.slice(1).map((row, j) => <tr key={j}>{row.map((cell, k) => <td key={k} className="px-3 py-2 align-top text-ink">{cell}</td>)}</tr>)}</tbody>
+          </table>
+        </div>;
+        return <p key={i} className="text-sm leading-7 text-ink">{block.text}</p>;
       })}
     </div>
   );
 }
-
 // Single question card — handles MCQ and open-answer, your CSS untouched
-function QuestionCard({ q, index, onReveal, cardRef }) {
+function QuestionCard({ q, index, onReveal, cardRef, topicName }) {
   const isMCQ = q.options && q.options.length >= 2;
   const [chosen, setChosen] = useState(null);
   const [answer, setAnswer] = useState(null); // null | {loading} | {correctKey, explanation, error}
@@ -74,29 +114,30 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
   return (
     <div
       ref={cardRef}
-      className="fade-in-up rounded-xl border border-[#E5E1D6] bg-white px-5 py-5 shadow-sm hover:shadow-md transition-shadow scroll-mt-24"
+      className="pyq-card scroll-mt-24"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
     >
       {/* Header row */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <span
-          className="text-xs rounded px-1.5 py-0.5 bg-[#E7F1EC] text-[#1F4D40]"
+          className="text-xs rounded px-1.5 py-0.5 bg-[#E5EFE9] text-[#174C3C]"
           style={{ fontFamily: "'IBM Plex Mono', monospace" }}
         >
           Q{index + 1}
         </span>
+        {topicName && <span className="rounded-full bg-paper px-2.5 py-1 text-xs text-slate">{topicName}</span>}
         <div className="flex gap-2 text-xs" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
           {q.year && (
-            <span className="rounded-full px-2 py-0.5 bg-[#E7F1EC] text-[#1F4D40]">{q.year}</span>
+            <span className="rounded-full px-2 py-0.5 bg-[#E5EFE9] text-[#174C3C]">{q.year}</span>
           )}
           {q.marks != null && (
-            <span className="rounded-full px-2 py-0.5 bg-[#FCEFDD] text-[#9C5E1F]">{q.marks} marks</span>
+            <span className="rounded-full px-2 py-0.5 bg-[#F6EEDC] text-[#8F632D]">{q.marks} marks</span>
           )}
         </div>
       </div>
 
       {/* Question stem */}
-      <p className="text-sm sm:text-base leading-relaxed whitespace-pre-line text-[#16322B] mb-4">
+      <p className="text-sm sm:text-base leading-relaxed whitespace-pre-line text-[#25352E] mb-4">
         {q.questionText}
       </p>
 
@@ -111,13 +152,13 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
               'w-full text-left px-4 py-2.5 rounded-lg border text-sm transition-all ';
 
             if (!chosen) {
-              cls += 'border-[#D2E5DD] bg-white hover:border-[#2A6F5C] hover:bg-[#E7F1EC]/40 cursor-pointer';
+              cls += 'border-[#DCE5DE] bg-white hover:border-[#286B55] hover:bg-[#E5EFE9]/40 cursor-pointer';
             } else if (revealCorrect) {
-              cls += 'border-[#2A6F5C] bg-[#E7F1EC] text-[#1F4D40] font-medium cursor-default';
+              cls += 'border-[#286B55] bg-[#E5EFE9] text-[#174C3C] font-medium cursor-default';
             } else if (isThis && isWrong) {
               cls += 'border-red-400 bg-red-50 text-red-700 cursor-default';
             } else {
-              cls += 'border-[#E5E1D6] bg-white text-[#5C6B65] cursor-default opacity-60';
+              cls += 'border-[#DCE5DE] bg-white text-[#718078] cursor-default opacity-60';
             }
 
             return (
@@ -133,7 +174,7 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
                 </span>
                 {opt.text}
                 {revealCorrect && (
-                  <span className="ml-2 text-[#1F4D40] text-xs font-semibold">✓ Correct</span>
+                  <span className="ml-2 text-[#174C3C] text-xs font-semibold">✓ Correct</span>
                 )}
                 {isThis && isWrong && (
                   <span className="ml-2 text-red-600 text-xs font-semibold">✗ Wrong</span>
@@ -148,7 +189,7 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
       {!isMCQ && !answer && (
         <button
           onClick={fetchAnswer}
-          className="mt-4 inline-flex items-center rounded-lg bg-[#C2792A] px-4 py-2 text-sm font-medium text-white hover:bg-[#A8651E] transition-colors focus:outline-none focus:ring-2 focus:ring-[#C2792A]/40"
+          className="mt-4 inline-flex items-center rounded-lg bg-[#174C3C] px-4 py-2 text-sm font-medium text-white hover:bg-[#103B30] transition-colors focus:outline-none focus:ring-2 focus:ring-[#174C3C]/40"
         >
           Tell me the answer
         </button>
@@ -166,10 +207,10 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
 
       {/* Result panel */}
       {answer && !answer.loading && !answer.error && (
-        <div className="mt-4 rounded-xl overflow-hidden border border-[#E5E1D6]">
+        <div className="mt-4 rounded-xl overflow-hidden border border-[#DCE5DE]">
           {/* Correct answer banner */}
           {answer.correctKey && (
-            <div className="bg-[#1F4D40] text-white px-4 py-3 flex items-center gap-3">
+            <div className="bg-[#174C3C] text-white px-4 py-3 flex items-center gap-3">
               <span className="text-lg">{isCorrect ? '🎉' : '📖'}</span>
               <div>
                 <p className="text-sm font-semibold">
@@ -189,20 +230,20 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
           )}
 
           {/* Topic to learn and clinical reasoning */}
-          <div className="border-l-2 border-[#D08A3C] bg-[#FCEFDD]/50 px-4 py-3 space-y-3">
+          <div className="border-l-2 border-[#C18B43] bg-[#F6EEDC]/50 px-4 py-3 space-y-3">
             {answer.topicToLearn && (
               <div>
                 <p
-                  className="text-xs uppercase tracking-wide text-[#9C5E1F] mb-1"
+                  className="text-xs uppercase tracking-wide text-[#8F632D] mb-1"
                   style={{ fontFamily: "'IBM Plex Mono', monospace" }}
                 >
                   Topic to learn
                 </p>
-                <p className="text-sm font-medium text-[#16322B]">{answer.topicToLearn}</p>
+                <p className="text-sm font-medium text-[#25352E]">{answer.topicToLearn}</p>
               </div>
             )}
             <p
-              className="text-xs uppercase tracking-wide text-[#9C5E1F] mb-2"
+              className="text-xs uppercase tracking-wide text-[#8F632D] mb-2"
               style={{ fontFamily: "'IBM Plex Mono', monospace" }}
             >
               Why this answer
@@ -216,253 +257,214 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
 }
 
 export default function StudentHome() {
-  const [subjects, setSubjects]           = useState([]);
-  const [subjectId, setSubjectId]         = useState('');
-  const [topics, setTopics]               = useState([]);
-  const [totalTopicQuestionCount, setTotalTopicQuestionCount] = useState(0);
-  const [topicId, setTopicId]             = useState('');
-  const [questions, setQuestions]         = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [subjectId, setSubjectId] = useState('');
+  const [topics, setTopics] = useState([]);
+  const [totalQuestionCount, setTotalQuestionCount] = useState(0);
+  const [topicId, setTopicId] = useState('all');
+  const [questions, setQuestions] = useState([]);
+  const [subjectSearch, setSubjectSearch] = useState('');
+  const [questionSearch, setQuestionSearch] = useState('');
+  const [loadingSubjects, setLoadingSubjects] = useState(true);
   const [loadingTopics, setLoadingTopics] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/subjects').then((res) => {
-      setSubjects(res.data.subjects);
-      if (res.data.subjects[0]) setSubjectId(res.data.subjects[0]._id);
-    });
+    api.get('/subjects')
+      .then((res) => {
+        setSubjects(res.data.subjects);
+        if (res.data.subjects[0]) setSubjectId(res.data.subjects[0]._id);
+      })
+      .catch((err) => setError(err.response?.data?.message || 'Could not load subjects.'))
+      .finally(() => setLoadingSubjects(false));
   }, []);
 
   useEffect(() => {
     if (!subjectId) return;
     setLoadingTopics(true);
-    setTopicId('');
+    setTopicId('all');
     setQuestions([]);
     setTopics([]);
-    setTotalTopicQuestionCount(0);
-    api.get('/topics', { params: { subject: subjectId } }).then((res) => {
-      setTopics(res.data.topics);
-      setTotalTopicQuestionCount(res.data.totalQuestionCount || 0);
-      setTopicId('all');
-      setLoadingTopics(false);
-    });
+    setTotalQuestionCount(0);
+    api.get('/topics', { params: { subject: subjectId } })
+      .then((res) => {
+        setTopics(res.data.topics);
+        setTotalQuestionCount(res.data.totalQuestionCount || 0);
+      })
+      .catch((err) => setError(err.response?.data?.message || 'Could not load topics.'))
+      .finally(() => setLoadingTopics(false));
   }, [subjectId]);
 
   useEffect(() => {
     if (!subjectId || !topicId) return;
     setLoadingQuestions(true);
-    api.get('/questions', { params: { subject: subjectId, topic: topicId } }).then((res) => {
-      setQuestions(res.data.questions);
-      setLoadingQuestions(false);
-    });
+    setError('');
+    api.get('/questions', { params: { subject: subjectId, topic: topicId } })
+      .then((res) => setQuestions(res.data.questions))
+      .catch((err) => setError(err.response?.data?.message || 'Could not load questions.'))
+      .finally(() => setLoadingQuestions(false));
   }, [subjectId, topicId]);
 
-  // Fonts
-  useEffect(() => {
-    const id = 'medprep-fonts';
-    if (document.getElementById(id)) return;
-    const link = document.createElement('link');
-    link.id = id;
-    link.rel = 'stylesheet';
-    link.href =
-      'https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap';
-    document.head.appendChild(link);
-    document.documentElement.style.scrollBehavior = 'smooth';
-  }, []);
-
-  // Scroll progress bar
-  const [scrollPct, setScrollPct] = useState(0);
-  useEffect(() => {
-    function onScroll() {
-      const el = document.documentElement;
-      const max = el.scrollHeight - el.clientHeight;
-      setScrollPct(max > 0 ? (el.scrollTop / max) * 100 : 0);
-    }
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  // Auto-scroll to card when answer arrives
-  const [activeId, setActiveId]   = useState(null);
-  const questionRefs              = useRef({});
-
-  function handleReveal(questionId) {
-    setActiveId(questionId);
-  }
-
-  const totalTopicQuestions = topics.reduce((total, topic) => total + (topic.questionCount || 0), 0);
-
-  useEffect(() => {
-    if (!activeId) return;
-    const node = questionRefs.current[activeId];
-    if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [activeId]);
+  const selectedSubject = subjects.find((subject) => subject._id === subjectId);
+  const selectedTopic = topics.find((topic) => topic._id === topicId);
+  const visibleSubjects = subjects.filter((subject) =>
+    subject.name.toLowerCase().includes(subjectSearch.trim().toLowerCase())
+  );
+  const visibleQuestions = questions.filter((question) => {
+    const haystack = [question.questionText, ...(question.options || []).map((option) => option.text)]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(questionSearch.trim().toLowerCase());
+  });
 
   return (
-    <div className="min-h-screen bg-[#FAF8F3]">
-      <style>{`
-        @keyframes ecgDraw { from { stroke-dashoffset: 1400; } to { stroke-dashoffset: 0; } }
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .ecg-pulse-line { stroke-dasharray: 1400; animation: ecgDraw 2.2s ease-out forwards; }
-        .fade-in-up { animation: fadeInUp 0.45s ease-out both; }
-        @media (prefers-reduced-motion: reduce) {
-          .ecg-pulse-line { animation: none; stroke-dashoffset: 0; }
-          .fade-in-up { animation: none; opacity: 1; transform: none; }
-        }
-      `}</style>
-
-      {/* Scroll progress */}
-      <div
-        className="fixed top-0 left-0 h-[3px] z-50 bg-gradient-to-r from-[#2A6F5C] to-[#D08A3C] transition-[width] duration-150 ease-out"
-        style={{ width: `${scrollPct}%` }}
-      />
-
+    <div className="page-shell">
       <Navbar variant="student" />
 
-      {/* Banner */}
-      <header className="relative overflow-hidden bg-[#1F4D40]">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-10 pb-9 sm:pt-14 sm:pb-12">
-          <p
-            className="text-[11px] tracking-[0.22em] uppercase text-[#BFE0D2] mb-3"
-            style={{ fontFamily: "'IBM Plex Mono', monospace" }}
-          >
-            Previous Year Question Bank
-          </p>
-          <h1
-            className="text-4xl sm:text-5xl font-semibold tracking-tight text-white leading-[1.05]"
-            style={{ fontFamily: "'Lora', serif" }}
-          >
-            MedPrep
-          </h1>
-          <p
-            className="mt-3 max-w-md text-sm sm:text-base text-[#D9ECE3] leading-relaxed"
-            style={{ fontFamily: "'Inter', sans-serif" }}
-          >
-            Helping medical students prepare with confidence — real past questions, clear answers.
-          </p>
+      <header className="border-b border-line bg-gradient-to-br from-pine-light via-paper to-white">
+        <div className="page-container py-12 sm:py-16">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pine">MedPrep question bank</p>
+          <div className="mt-3 grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
+            <div>
+              <h1 className="max-w-3xl font-display text-4xl font-semibold leading-tight tracking-tight text-pine-dark sm:text-5xl">
+                Your medical learning space
+              </h1>
+              <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate">
+                Browse previous-year questions, practice each answer, and review focused explanations for your exam preparation.
+              </p>
+            </div>
+            <a href="#subjects" className="btn-primary w-fit">Browse subjects <span aria-hidden="true">↓</span></a>
+          </div>
         </div>
-
-        <svg
-          className="absolute bottom-0 left-0 w-full h-7 sm:h-9 text-[#D08A3C]"
-          viewBox="0 0 800 40"
-          preserveAspectRatio="none"
-          fill="none"
-          aria-hidden="true"
-        >
-          <polyline
-            className="ecg-pulse-line"
-            points="0,20 130,20 150,20 160,4 172,36 184,20 320,20 460,20 480,20 490,4 502,36 514,20 650,20 800,20"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeOpacity="0.55"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10" style={{ fontFamily: "'Inter', sans-serif" }}>
-        <h2
-          className="text-xl font-semibold text-[#16322B] mb-1"
-          style={{ fontFamily: "'Lora', serif" }}
-        >
-          Browse questions
-        </h2>
-        <p className="text-sm text-[#5C6B65] mb-7 leading-relaxed">
-          Pick a subject and a topic. For MCQs, tap the option you think is correct — you'll get
-          instant feedback and a clear explanation.
-        </p>
+      <main id="subjects" className="page-container py-8 sm:py-10">
+        <div className="mb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pine">Question library</p>
+          <h2 className="mt-1 font-display text-2xl font-semibold text-ink">Browse by subject and topic</h2>
+        </div>
 
-        {subjects.length === 0 ? (
-          <div className="rounded-xl border border-[#E5E1D6] bg-white px-5 py-6 text-sm text-[#5C6B65]">
-            No subjects have been added yet — check back soon.
+        {error && (
+          <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
           </div>
-        ) : (
-          <>
-            <div className="mb-6">
-              <label className="block text-xs font-medium uppercase tracking-wide text-[#5C6B65] mb-1.5">
-                Subject
-              </label>
-              <select
-                className="w-auto min-w-[200px] rounded-lg border border-[#D2E5DD] bg-white px-3 py-2 text-sm text-[#16322B] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2A6F5C]/40 focus:border-[#2A6F5C] transition"
-                value={subjectId}
-                onChange={(e) => setSubjectId(e.target.value)}
-              >
-                {subjects.map((s) => (
-                  <option key={s._id} value={s._id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
+        )}
 
-            {loadingTopics ? (
-              <Loader label="Loading topics..." />
-            ) : topics.length === 0 && totalTopicQuestionCount === 0 ? (
-              <div className="rounded-xl border border-[#E5E1D6] bg-white px-5 py-6 text-sm text-[#5C6B65]">
-                No published questions for this subject yet.
+        {loadingSubjects ? (
+          <Loader label="Loading subjects..." />
+        ) : subjects.length === 0 ? (
+          <div className="card text-sm text-slate">No subjects have been added yet. Please check back soon.</div>
+        ) : (
+          <div className="grid items-start gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <aside className="card !p-4 sm:!p-5">
+              <div className="mb-4">
+                <h3 className="font-display text-lg font-semibold text-ink">Subjects</h3>
+                <p className="mt-1 text-xs text-slate">Choose an area to study.</p>
               </div>
-            ) : (
-              <>
-                <div className="mb-7">
-                  <label htmlFor="topic-select" className="block text-xs font-medium uppercase tracking-wide text-[#5C6B65] mb-1.5">
-                    Topic
-                  </label>
+              <label className="sr-only" htmlFor="subject-search">Search subjects</label>
+              <input
+                id="subject-search"
+                className="field-input !py-2 text-sm"
+                placeholder="Find a subject"
+                value={subjectSearch}
+                onChange={(event) => setSubjectSearch(event.target.value)}
+              />
+              <nav className="mt-3 max-h-[420px] space-y-1 overflow-y-auto" aria-label="Subjects">
+                {visibleSubjects.map((subject) => {
+                  const active = subject._id === subjectId;
+                  return (
+                    <button
+                      key={subject._id}
+                      type="button"
+                      aria-current={active ? 'page' : undefined}
+                      onClick={() => { setSubjectId(subject._id); setQuestionSearch(''); }}
+                      className={'w-full rounded-lg px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-pine ' +
+                        (active ? 'bg-pine-light font-semibold text-pine-dark' : 'text-ink hover:bg-paper')}
+                    >
+                      {subject.name}
+                    </button>
+                  );
+                })}
+                {visibleSubjects.length === 0 && <p className="px-3 py-3 text-sm text-slate">No matching subjects.</p>}
+              </nav>
+            </aside>
+
+            <section className="min-w-0" aria-label="Questions">
+              <div className="mb-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate">Selected subject</p>
+                <h3 className="mt-1 font-display text-2xl font-semibold text-ink">{selectedSubject?.name}</h3>
+                <p className="mt-1 text-sm text-slate">Select a topic or choose all topics to browse the full set.</p>
+              </div>
+
+              <div className="card mb-5 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="field-label" htmlFor="topic-select">Topic</label>
                   <select
                     id="topic-select"
-                    className="w-full max-w-md rounded-lg border border-[#D2E5DD] bg-white px-3 py-2.5 text-sm text-[#16322B] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2A6F5C]/40 focus:border-[#2A6F5C] transition"
+                    className="field-input"
                     value={topicId}
-                    onChange={(e) => setTopicId(e.target.value)}
+                    onChange={(event) => setTopicId(event.target.value)}
+                    disabled={loadingTopics}
                   >
-                    <option value="all">ALL | {totalTopicQuestionCount ?? totalTopicQuestions} questions</option>
+                    <option value="all">All topics ({totalQuestionCount})</option>
                     {topics.map((topic) => (
                       <option key={topic._id} value={topic._id}>
-                        {topic.questionCount} questions | {topic.name}
+                        {topic.name} ({topic.questionCount} questions)
                       </option>
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="field-label" htmlFor="question-search">Search questions</label>
+                  <input
+                    id="question-search"
+                    className="field-input"
+                    type="search"
+                    placeholder="Search in this question set"
+                    value={questionSearch}
+                    onChange={(event) => setQuestionSearch(event.target.value)}
+                  />
+                </div>
+              </div>
 
-                {loadingQuestions ? (
-                  <Loader label="Loading questions..." />
-                ) : questions.length === 0 ? (
-                  <div className="rounded-xl border border-[#E5E1D6] bg-white px-5 py-6 text-sm text-[#5C6B65]">
-                    No questions in this topic yet.
-                  </div>
-                ) : (
+              {loadingTopics || loadingQuestions ? (
+                <Loader label={loadingTopics ? 'Loading topics...' : 'Loading questions...'} />
+              ) : questions.length === 0 ? (
+                <div className="card text-sm text-slate">
+                  No published questions are available for this selection yet.
+                </div>
+              ) : visibleQuestions.length === 0 ? (
+                <div className="card text-sm text-slate">No questions match “{questionSearch}”. Try another search.</div>
+              ) : (
+                <>
+                  <p className="mb-3 text-xs text-slate">
+                    Showing {visibleQuestions.length} of {questions.length} questions
+                    {selectedTopic ? ' in ' + selectedTopic.name : ''}
+                  </p>
                   <div className="space-y-4">
-                    {questions.map((q, i) => (
+                    {visibleQuestions.map((question, index) => (
                       <QuestionCard
-                        key={q._id}
-                        q={q}
-                        index={i}
-                        onReveal={handleReveal}
-                        cardRef={(node) => { questionRefs.current[q._id] = node; }}
+                        key={question._id}
+                        q={question}
+                        index={index}
+                        topicName={question.topic?.name || selectedTopic?.name}
+                        onReveal={() => {}}
                       />
                     ))}
                   </div>
-                )}
-              </>
-            )}
-          </>
+                </>
+              )}
+            </section>
+          </div>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-[#E5E1D6] mt-16 py-8">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-center gap-2 text-sm text-[#5C6B65]">
-          <span style={{ fontFamily: "'Inter', sans-serif" }}>
-            Made by <span className="font-medium text-[#16322B]">Galactico</span>
-          </span>
-          <a
-            href="https://www.linkedin.com/in/vaibhav-bhatt-900b46210/"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Vaibhav Bhatt on LinkedIn"
-            className="inline-flex items-center justify-center w-6 h-6 rounded text-[#1F4D40] hover:text-[#C2792A] transition-colors"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-              <path d="M4.98 3.5C4.98 4.88 3.88 6 2.5 6S0 4.88 0 3.5 1.12 1 2.5 1s2.48 1.12 2.48 2.5zM.5 8h4V23h-4V8zM8.5 8h3.83v2.05h.05c.53-1 1.84-2.05 3.79-2.05 4.06 0 4.81 2.67 4.81 6.14V23h-4v-6.78c0-1.62-.03-3.7-2.26-3.7-2.26 0-2.61 1.77-2.61 3.58V23h-4V8z" />
-            </svg>
+      <footer id="about" className="mt-10 border-t border-line bg-white">
+        <div className="page-container flex flex-col gap-3 py-7 text-sm text-slate sm:flex-row sm:items-center sm:justify-between">
+          <p><span className="font-display font-semibold text-pine-dark">MedPrep</span> · Previous-year medical questions</p>
+          <a href="https://www.linkedin.com/in/vaibhav-bhatt-900b46210/" target="_blank" rel="noopener noreferrer" className="text-pine hover:underline">
+            About the creator
           </a>
         </div>
       </footer>
