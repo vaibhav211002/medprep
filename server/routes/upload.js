@@ -3,7 +3,7 @@ const fs = require('fs');
 const requireAdmin = require('../middleware/auth');
 const { uploadPyq } = require('../middleware/upload');
 const { extractText, splitIntoQuestions } = require('../utils/pdfParser');
-const { classifyQuestionsByTopic } = require('../utils/grokClient');
+const { enrichQuestionsForReview } = require('../utils/grokClient');
 const Subject = require('../models/Subject');
 const Topic = require('../models/Topic');
 const Question = require('../models/Question');
@@ -34,24 +34,29 @@ router.post('/', requireAdmin, uploadPyq.single('pdf'), async (req, res) => {
       });
     }
 
-    // Try to auto-suggest a topic per question. If Grok isn't configured or
-    // the call fails, we still save the questions for manual tagging.
-    let suggestedTopics = extracted.map(() => '');
-    let classificationError = null;
+    // Enrich questions with AI-selected topics, answer keys, and missing options.
+    let enriched = extracted.map((question) => ({
+      topicName: '',
+      options: question.options || [],
+      correctOptionKey: null,
+    }));
+    let enrichmentError = null;
     try {
       const existingTopics = await Topic.find({ subject: subject._id }).select('name');
-      suggestedTopics = await classifyQuestionsByTopic(
+      enriched = await enrichQuestionsForReview(
         subject.name,
         existingTopics.map((t) => t.name),
         extracted
       );
     } catch (err) {
-      classificationError = err.code === 'NO_API_KEY' ? err.message : 'AI topic suggestion failed: ' + err.message;
+      enrichmentError = err.code === 'NO_API_KEY'
+        ? err.message
+        : 'AI question enrichment failed: ' + err.message;
     }
 
     const created = [];
     for (let i = 0; i < extracted.length; i++) {
-      const topicName = (suggestedTopics[i] || '').trim();
+      const topicName = (enriched[i]?.topicName || '').trim();
       let topicDoc = null;
 
       if (topicName) {
@@ -66,7 +71,10 @@ router.post('/', requireAdmin, uploadPyq.single('pdf'), async (req, res) => {
         subject: subject._id,
         topic: topicDoc ? topicDoc._id : null,
         questionText: extracted[i].questionText,
-        options: extracted[i].options || [],
+        options: enriched[i]?.options || extracted[i].options || [],
+        correctOptionKey: enriched[i]?.correctOptionKey || null,
+        aiAnswer: enriched[i]?.explanation || '',
+        topicToLearn: enriched[i]?.topicToLearn || '',
         suggestedTopicName: topicName,
         marks: extracted[i].marks,
         year: year || '',
@@ -78,7 +86,7 @@ router.post('/', requireAdmin, uploadPyq.single('pdf'), async (req, res) => {
 
     res.status(201).json({
       message: `Extracted ${created.length} question(s). Review and approve them before they go live.`,
-      classificationError,
+      enrichmentError,
       questions: created,
     });
   } catch (err) {

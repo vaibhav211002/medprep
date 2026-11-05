@@ -108,8 +108,8 @@ export default function UploadPYQ() {
       {result && (
         <div className="card mt-6">
           <p className="text-sm font-medium text-pine-dark mb-1">{result.message}</p>
-          {result.classificationError && (
-            <p className="text-sm text-amber-dark mb-2">{result.classificationError}</p>
+          {result.enrichmentError && (
+            <p className="text-sm text-amber-dark mb-2">{result.enrichmentError}</p>
           )}
           <a href="/admin/review" className="btn-secondary mt-2">Go to review queue</a>
         </div>

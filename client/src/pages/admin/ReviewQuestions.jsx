@@ -3,14 +3,17 @@ import api from '../../api/client.js';
 import Loader from '../../components/Loader.jsx';
 
 // Inline MCQ option editor — shown per question card in the review queue
-function OptionsEditor({ question, onSave }) {
+function OptionsEditor({ question, onSave, onGenerate }) {
   // Build editable state from existing options or blank 4-slot template
   const init = ['a', 'b', 'c', 'd'].map((key) => {
     const existing = (question.options || []).find((o) => o.key === key);
     return { key, text: existing?.text || '' };
   });
   const [opts, setOpts] = useState(init);
+  const [correctKey, setCorrectKey] = useState(question.correctOptionKey || '');
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
 
   function update(key, text) {
     setOpts((prev) => prev.map((o) => (o.key === key ? { ...o, text } : o)));
@@ -22,15 +25,45 @@ function OptionsEditor({ question, onSave }) {
       alert('Fill in at least 2 options (A and B minimum) before saving.');
       return;
     }
+    if (filled.length && !filled.some((o) => o.key === correctKey)) {
+      alert('Select which option is correct before saving.');
+      return;
+    }
     setSaving(true);
-    // Also clear cached AI answer so it re-runs with updated options
-    await onSave(filled, { aiAnswer: '', correctOptionKey: null });
-    setSaving(false);
+    // Clear the cached explanation when the options or answer key change.
+    try {
+      await onSave(filled, { aiAnswer: '', correctOptionKey: correctKey || null });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function generate() {
+    setGenerating(true);
+    setError('');
+    try {
+      const updated = await onGenerate();
+      if (updated) {
+        setOpts(['a', 'b', 'c', 'd'].map((key) => ({
+          key,
+          text: updated.options?.find((option) => option.key === key)?.text || '',
+        })));
+        setCorrectKey(updated.correctOptionKey || '');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not generate options. Try again or add them manually.');
+    } finally {
+      setGenerating(false);
+    }
   }
 
   return (
     <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
       <p className="text-xs font-medium text-amber-800 mb-2">MCQ Options — edit or fill in below</p>
+      <button onClick={generate} disabled={generating} className="btn-secondary !py-1.5 mb-2 text-xs">
+        {generating ? 'Generating options and answer key...' : 'Generate options with AI'}
+      </button>
+      {error && <p className="text-sm text-red-700 mb-2">{error}</p>}
       <div className="space-y-1.5">
         {opts.map((o) => (
           <div key={o.key} className="flex items-center gap-2">
@@ -47,6 +80,21 @@ function OptionsEditor({ question, onSave }) {
       <button onClick={save} disabled={saving} className="btn-amber !py-1.5 mt-2 text-xs">
         {saving ? 'Saving...' : 'Save options'}
       </button>
+      {opts.some((o) => o.text.trim()) && (
+        <label className="block mt-3 text-xs font-medium text-amber-900">
+          Correct answer
+          <select
+            className="field-input !py-1.5 mt-1 text-sm"
+            value={correctKey}
+            onChange={(e) => setCorrectKey(e.target.value)}
+          >
+            <option value="">Select correct option</option>
+            {opts.filter((o) => o.text.trim()).map((o) => (
+              <option key={o.key} value={o.key}>{o.key.toUpperCase()}) {o.text}</option>
+            ))}
+          </select>
+        </label>
+      )}
     </div>
   );
 }
@@ -230,6 +278,11 @@ export default function ReviewQuestions() {
                           No options detected
                         </span>
                       )}
+                      {hasMCQ && q.correctOptionKey && (
+                        <span className="inline-flex items-center rounded-full bg-pine-light text-pine-dark text-xs font-medium px-2 py-0.5">
+                          AI answer key: {q.correctOptionKey.toUpperCase()}
+                        </span>
+                      )}
                       {q.sourceFileName && (
                         <span className="text-slate font-mono">{q.sourceFileName}</span>
                       )}
@@ -238,11 +291,20 @@ export default function ReviewQuestions() {
                     {/* Current MCQ options preview */}
                     {hasMCQ && !isEditingOptions && (
                       <div className="flex flex-wrap gap-2 mb-2">
-                        {q.options.map((o) => (
-                          <span key={o.key} className="text-xs bg-surface border border-line rounded px-2 py-1">
+                        {q.options.map((o) => {
+                          const isCorrect = o.key === q.correctOptionKey;
+                          return (
+                          <span
+                            key={o.key}
+                            className={isCorrect
+                              ? 'text-xs rounded px-2 py-1 bg-pine-light border border-pine text-pine-dark font-medium'
+                              : 'text-xs bg-surface border border-line rounded px-2 py-1'}
+                          >
                             <span className="font-mono text-pine-dark uppercase">{o.key})</span> {o.text}
+                            {isCorrect && <span className="ml-1 font-semibold">✓ Correct answer</span>}
                           </span>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
 
@@ -251,23 +313,37 @@ export default function ReviewQuestions() {
                       <OptionsEditor
                         question={q}
                         onSave={(opts, extra) => saveOptions(q._id, opts, extra)}
+                        onGenerate={async () => {
+                          const res = await api.post('/questions/' + q._id + '/generate-options');
+                          const assignedTopic = res.data.question.topic;
+                          if (assignedTopic) {
+                            setTopics((current) => current.some((topic) => topic._id === assignedTopic._id)
+                              ? current
+                              : [...current, assignedTopic].sort((a, b) => a.name.localeCompare(b.name)));
+                          }
+                          setQuestions((current) => current.map((item) => item._id === q._id ? res.data.question : item));
+                          return res.data.question;
+                        }}
                       />
                     )}
 
                     {/* Action row */}
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                       {/* Topic selector */}
-                      <select
-                        className="field-input !w-auto !py-1.5 text-sm"
-                        value={q.topic?._id || ''}
-                        onChange={(e) => handleTopicChange(q, e.target.value)}
-                      >
-                        <option value="">-- No topic --</option>
-                        {topics.map((t) => (
-                          <option key={t._id} value={t._id}>{t.name}</option>
-                        ))}
-                        <option value="__new__">+ New topic...</option>
-                      </select>
+                      <label className="flex items-center gap-2 text-xs font-medium text-slate">
+                        Assigned topic
+                        <select
+                          className="field-input !w-auto !py-1.5 text-sm"
+                          value={q.topic?._id || ''}
+                          onChange={(e) => handleTopicChange(q, e.target.value)}
+                        >
+                          <option value="">-- No topic --</option>
+                          {topics.map((t) => (
+                            <option key={t._id} value={t._id}>{t.name}</option>
+                          ))}
+                          <option value="__new__">+ New topic...</option>
+                        </select>
+                      </label>
 
                       {newTopicFor === q._id && (
                         <span className="flex items-center gap-2">
@@ -298,8 +374,8 @@ export default function ReviewQuestions() {
                         {q.status !== 'approved' && (
                           <button
                             onClick={() => approve(q._id)}
-                            disabled={!q.topic}
-                            title={!q.topic ? 'Assign a topic first' : 'Approve'}
+                            disabled={!q.topic || (hasMCQ && !q.options.some((o) => o.key === q.correctOptionKey))}
+                            title={!q.topic ? 'Assign a topic first' : hasMCQ && !q.correctOptionKey ? 'Set the correct answer first' : 'Approve'}
                             className="btn-amber !py-1.5"
                           >
                             Approve

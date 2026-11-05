@@ -21,7 +21,7 @@ const MARKS_PATTERN = /[\[(]\s*(\d{1,3})\s*(?:marks?|m)?\s*[\])]\s*$/i;
  *   (a) text      [a] text
  * Also handles options inline like "a) Rota  b) OPV  c) Penta  d) dT"
  */
-const OPTION_LINE_RE = /^\s*[\[(]?\s*([a-dA-D])\s*[\])]?[\s]*[.):\-]\s*(.+)/;
+const OPTION_LINE_RE = /^\s*[\[(]?\s*([a-dA-D])\s*[\])]?[\s]*[.):\-]\s*(.*)$/;
 
 /**
  * Some PDFs put all options on a single line, e.g:
@@ -63,7 +63,7 @@ function extractOptions(blockText) {
       continue;
     }
 
-    // Check for single option on its own line
+    // Check for single options; some PDFs put the marker and text on separate lines.
     const m = line.match(OPTION_LINE_RE);
     if (m) {
       const key = m[1].toLowerCase();
@@ -72,6 +72,8 @@ function extractOptions(blockText) {
       if (!options.find((ex) => ex.key === key)) {
         inOptions = true;
         options.push({ key, text });
+      } else if (inOptions && text) {
+        options[options.length - 1].text += ' ' + line;
       }
       continue;
     }
@@ -80,13 +82,14 @@ function extractOptions(blockText) {
       stemLines.push(line);
     } else if (options.length > 0) {
       // Continuation of previous option's text (wrapped line)
-      options[options.length - 1].text += ' ' + line;
+      if (!options[options.length - 1].text) options[options.length - 1].text = line;
+      else options[options.length - 1].text += ' ' + line;
     }
   }
 
   // Must have at least 2 unique option keys to count as MCQ
   const distinctKeys = new Set(options.map((o) => o.key));
-  if (options.length < 2 || distinctKeys.size < 2) {
+  if (options.length < 2 || distinctKeys.size < 2 || options.some((o) => !o.text.trim())) {
     return { questionText: blockText.trim(), options: [] };
   }
 

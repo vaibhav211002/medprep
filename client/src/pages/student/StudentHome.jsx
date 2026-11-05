@@ -54,6 +54,7 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
       setAnswer({
         correctKey: res.data.correctKey || null,
         explanation: res.data.answer || '',
+        topicToLearn: res.data.topicToLearn || '',
         error: null,
       });
     } catch (err) {
@@ -173,10 +174,12 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
               <div>
                 <p className="text-sm font-semibold">
                   {isCorrect
-                    ? 'Correct! Well done.'
-                    : `Correct answer: ${answer.correctKey.toUpperCase()}) ${
-                        q.options?.find((o) => o.key === answer.correctKey)?.text || ''
-                      }`}
+                    ? 'Your answer is correct. Well done!'
+                    : 'That answer is incorrect.'}
+                </p>
+                <p className="text-sm mt-1">
+                  Correct answer: {answer.correctKey.toUpperCase()}){' '}
+                  {q.options?.find((o) => o.key === answer.correctKey)?.text || ''}
                 </p>
                 {!isCorrect && (
                   <p className="text-xs text-white/70 mt-0.5">Read the explanation below.</p>
@@ -185,13 +188,24 @@ function QuestionCard({ q, index, onReveal, cardRef }) {
             </div>
           )}
 
-          {/* Explanation */}
-          <div className="border-l-2 border-[#D08A3C] bg-[#FCEFDD]/50 px-4 py-3">
+          {/* Topic to learn and clinical reasoning */}
+          <div className="border-l-2 border-[#D08A3C] bg-[#FCEFDD]/50 px-4 py-3 space-y-3">
+            {answer.topicToLearn && (
+              <div>
+                <p
+                  className="text-xs uppercase tracking-wide text-[#9C5E1F] mb-1"
+                  style={{ fontFamily: "'IBM Plex Mono', monospace" }}
+                >
+                  Topic to learn
+                </p>
+                <p className="text-sm font-medium text-[#16322B]">{answer.topicToLearn}</p>
+              </div>
+            )}
             <p
               className="text-xs uppercase tracking-wide text-[#9C5E1F] mb-2"
               style={{ fontFamily: "'IBM Plex Mono', monospace" }}
             >
-              Explanation
+              Why this answer
             </p>
             <AnswerText text={answer.explanation} />
           </div>
@@ -205,6 +219,7 @@ export default function StudentHome() {
   const [subjects, setSubjects]           = useState([]);
   const [subjectId, setSubjectId]         = useState('');
   const [topics, setTopics]               = useState([]);
+  const [totalTopicQuestionCount, setTotalTopicQuestionCount] = useState(0);
   const [topicId, setTopicId]             = useState('');
   const [questions, setQuestions]         = useState([]);
   const [loadingTopics, setLoadingTopics] = useState(false);
@@ -222,9 +237,12 @@ export default function StudentHome() {
     setLoadingTopics(true);
     setTopicId('');
     setQuestions([]);
+    setTopics([]);
+    setTotalTopicQuestionCount(0);
     api.get('/topics', { params: { subject: subjectId } }).then((res) => {
       setTopics(res.data.topics);
-      if (res.data.topics[0]) setTopicId(res.data.topics[0]._id);
+      setTotalTopicQuestionCount(res.data.totalQuestionCount || 0);
+      setTopicId('all');
       setLoadingTopics(false);
     });
   }, [subjectId]);
@@ -271,6 +289,8 @@ export default function StudentHome() {
   function handleReveal(questionId) {
     setActiveId(questionId);
   }
+
+  const totalTopicQuestions = topics.reduce((total, topic) => total + (topic.questionCount || 0), 0);
 
   useEffect(() => {
     if (!activeId) return;
@@ -377,29 +397,29 @@ export default function StudentHome() {
 
             {loadingTopics ? (
               <Loader label="Loading topics..." />
-            ) : topics.length === 0 ? (
+            ) : topics.length === 0 && totalTopicQuestionCount === 0 ? (
               <div className="rounded-xl border border-[#E5E1D6] bg-white px-5 py-6 text-sm text-[#5C6B65]">
                 No published questions for this subject yet.
               </div>
             ) : (
               <>
-                <div className="flex flex-wrap gap-2 mb-7">
-                  {topics.map((t) => {
-                    const active = topicId === t._id;
-                    return (
-                      <button
-                        key={t._id}
-                        onClick={() => setTopicId(t._id)}
-                        className={`px-3.5 py-1.5 rounded-full text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-[#2A6F5C]/40 ${
-                          active
-                            ? 'bg-[#1F4D40] border-[#1F4D40] text-white'
-                            : 'bg-white border-[#D2E5DD] text-[#16322B] hover:border-[#2A6F5C]'
-                        }`}
-                      >
-                        {t.name}
-                      </button>
-                    );
-                  })}
+                <div className="mb-7">
+                  <label htmlFor="topic-select" className="block text-xs font-medium uppercase tracking-wide text-[#5C6B65] mb-1.5">
+                    Topic
+                  </label>
+                  <select
+                    id="topic-select"
+                    className="w-full max-w-md rounded-lg border border-[#D2E5DD] bg-white px-3 py-2.5 text-sm text-[#16322B] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2A6F5C]/40 focus:border-[#2A6F5C] transition"
+                    value={topicId}
+                    onChange={(e) => setTopicId(e.target.value)}
+                  >
+                    <option value="all">ALL | {totalTopicQuestionCount ?? totalTopicQuestions} questions</option>
+                    {topics.map((topic) => (
+                      <option key={topic._id} value={topic._id}>
+                        {topic.questionCount} questions | {topic.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {loadingQuestions ? (

@@ -19,10 +19,29 @@ function client() {
   });
 }
 
+function formatProviderError(err) {
+  const status = err.response?.status;
+  const detail = err.response?.data?.error?.message || err.response?.data?.message;
+  if (status) return 'AI provider returned HTTP ' + status + (detail ? ': ' + detail : '.');
+  if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+    return 'AI provider request timed out. Check the server connection and retry.';
+  }
+  return 'AI request failed: ' + (err.message || 'unknown error');
+}
+
+function cleanOptionText(value) {
+  return String(value || '')
+    .replace(/https?:\/\/\S+|www\.\S+/gi, ' ')
+    .replace(/\b[\w-]*(?:firstranker|ranker|examrace|studocu)[\w.-]*/gi, ' ')
+    .replace(/\*{2,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function chatCompletion(messages, { jsonMode = false } = {}) {
   const http = client();
   const body = {
-    model: process.env.GROK_MODEL || 'grok-4.3',
+    model: process.env.GROK_MODEL || 'openai/gpt-oss-120b',
     messages,
     temperature: 0.2,
   };
@@ -76,6 +95,76 @@ async function classifyQuestionsByTopic(subjectName, existingTopicNames, questio
 }
 
 /**
+ * Suggest a topic and complete MCQ data for each extracted question.
+ * Existing PDF choices are preserved; AI only supplies a key for those.
+ */
+async function enrichQuestionsForReview(subjectName, existingTopicNames, questions) {
+  const results = [];
+  const batchSize = 8;
+
+  for (let start = 0; start < questions.length; start += batchSize) {
+    const batch = questions.slice(start, start + batchSize);
+    const inputs = batch.map((q, offset) => ({
+      index: start + offset,
+      question: q.questionText.slice(0, 1200),
+      extractedOptions: q.options || [],
+    }));
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are an expert medical exam question editor. Return only valid JSON, with no markdown.',
+      },
+      {
+        role: 'user',
+        content:
+          'Subject: ' + subjectName + '\nExisting topic names: ' +
+          (existingTopicNames.join(', ') || '(none)') + '\n\n' +
+          'For each question, assign the most specific concise topic (2-5 words). ' +
+          'Provide exactly four choices with keys a, b, c, d and one correctOptionKey. ' +
+          'If extractedOptions exist, preserve their keys and wording exactly and identify the correct answer. ' +
+          'If no choices were extracted, create four plausible choices with exactly one correct answer. ' +
+          'Do not include websites, publisher names, citations, decorative symbols, or non-medical text in choices. ' +
+          'For each question, explain why the correct choice is correct and specifically why each other choice is wrong. ' +
+          'Also provide a focused topicToLearn phrase. If you cannot confidently determine the answer, use empty options and null correctOptionKey. ' +
+          'Return {"questions":[{"index":0,"topic":"...","topicToLearn":"...","options":[{"key":"a","text":"..."}],"correctOptionKey":"a","explanation":"..."}]}.\n\n' +
+          JSON.stringify(inputs),
+      },
+    ];
+    const raw = await chatCompletion(messages, { jsonMode: true });
+    const parsed = JSON.parse(raw);
+    const rows = Array.isArray(parsed.questions) ? parsed.questions : [];
+
+    for (let offset = 0; offset < batch.length; offset++) {
+      const index = start + offset;
+      const row = rows.find((item) => item.index === index) || rows[offset] || {};
+      const fromPdf = batch[offset].options || [];
+      const candidate = fromPdf.length ? fromPdf : (Array.isArray(row.options) ? row.options : []);
+      const options = candidate
+        .filter((item) => item && /^[a-d]$/i.test(String(item.key || '')) && String(item.text || '').trim())
+        .map((item) => ({ key: String(item.key).toLowerCase(), text: cleanOptionText(item.text) }))
+        .filter((item) => item.text);
+      const keys = new Set(options.map((item) => item.key));
+      const hasFourChoices = options.length === 4 && ['a', 'b', 'c', 'd'].every((key) => keys.has(key));
+      const proposedKey = String(row.correctOptionKey || '').toLowerCase();
+      const hasValidKey = keys.has(proposedKey) && (fromPdf.length ? options.length >= 2 : hasFourChoices);
+
+      results.push({
+        topicName: String(row.topic || '').trim(),
+        topicToLearn: String(row.topicToLearn || row.topic || '').trim(),
+        explanation: String(row.explanation || '')
+          .replace(/https?:\/\/\S+|www\.\S+/gi, ' ')
+          .replace(/\*{2,}/g, '')
+          .trim(),
+        options,
+        correctOptionKey: hasValidKey ? proposedKey : null,
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
  * Ask Grok to answer a single PYQ question for a student.
  */
 async function answerQuestion(subjectName, topicName, questionText) {
@@ -98,4 +187,4 @@ async function answerQuestion(subjectName, topicName, questionText) {
   return chatCompletion(messages, { jsonMode: false });
 }
 
-module.exports = { chatCompletion, classifyQuestionsByTopic, answerQuestion };
+module.exports = { chatCompletion, classifyQuestionsByTopic, enrichQuestionsForReview, answerQuestion, formatProviderError, cleanOptionText };

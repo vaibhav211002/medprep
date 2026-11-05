@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Topic = require('../models/Topic');
 const Question = require('../models/Question');
 const requireAdmin = require('../middleware/auth');
@@ -11,9 +12,40 @@ router.get('/', async (req, res) => {
   const { subject } = req.query;
   if (!subject) return res.status(400).json({ message: 'subject query param is required.' });
 
-  const topicIds = await Question.distinct('topic', { subject, status: 'approved' });
-  const topics = await Topic.find({ _id: { $in: topicIds } }).sort({ name: 1 });
-  res.json({ topics });
+  if (!mongoose.Types.ObjectId.isValid(subject)) {
+    return res.status(400).json({ message: 'subject must be a valid id.' });
+  }
+  const [topics, totalQuestionCount] = await Promise.all([
+    Question.aggregate([
+    {
+      $match: {
+        subject: new mongoose.Types.ObjectId(subject),
+        status: 'approved',
+        topic: { $ne: null },
+      },
+    },
+    { $group: { _id: '$topic', questionCount: { $sum: 1 } } },
+    {
+      $lookup: {
+        from: 'topics',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'topic',
+      },
+    },
+    { $unwind: '$topic' },
+    {
+      $project: {
+        _id: '$topic._id',
+        name: '$topic.name',
+        questionCount: 1,
+      },
+    },
+    { $sort: { name: 1 } },
+    ]),
+    Question.countDocuments({ subject, status: 'approved' }),
+  ]);
+  res.json({ topics, totalQuestionCount });
 });
 
 // Admin: every topic for a subject, including ones with no approved questions yet.
